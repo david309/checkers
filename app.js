@@ -1,14 +1,17 @@
 const game = document.getElementById('game');
 
 // gameboard size 8 x 8;
-
 const gameObj = {
   lastTurn: null,
   playableCells: [],
   redLoc: [],
   blackLoc: [],
   selected: null,
+  isKing: false,
+  enemyColor: null,
+  position: {},
   moves: [],
+  nearestCells: [],
   redPoints: 0,
   blackPoints: 0
 };
@@ -25,31 +28,23 @@ const generateBoard = () => {
     for (let j = 0; j < 8; j++) {
       const tableData = document.createElement('td');
       tableData.setAttribute('id', `${i},${j}`);
-      // tableData.classList.add(`row-${i}-col-${j}`);
 
       // if the row we're on is even, give the even cells a brown-cell
-      if (i % 2 === 0) {
-        if (counter % 2 === 0) {
-          tableData.classList.add('brown-cell');
-          gameObj.playableCells.push(tableData);
-        }
+      if (i % 2 === 0 && counter % 2 === 0) {
+        tableData.classList.add('brown-cell');
+        gameObj.playableCells.push(tableData);
       }
-
       // if the row we're on is odd, give the odd cells a brown-cell
-      if (i % 2 !== 0) {
-        if (counter % 2 !== 0) {
-          tableData.classList.add('brown-cell');
-          gameObj.playableCells.push(tableData);
-        }
+      if (i % 2 !== 0 && counter % 2 !== 0) {
+        tableData.classList.add('brown-cell');
+        gameObj.playableCells.push(tableData);
       }
 
       tableRow.appendChild(tableData);
       counter++;
     }
-
     table.appendChild(tableRow);
   }
-
   game.appendChild(table);
 };
 
@@ -70,11 +65,12 @@ const generateCheckers = () => {
   let blackCheckerId = 0;
   for (let i = 0; i < 8; i++) {
     for (let j = 0; j < 8; j++) {
+      // if we're on the first (0) cell or third, put the checkers on the even cells
       if ((i === 0 || i === 2) && counter % 2 === 0) {
         makeChecker('red', i, j, redCheckerId);
         redCheckerId++;
       }
-
+      // if we're on the second cell, put the checkers on the odd cells
       if (i === 1 && counter % 2 !== 0) {
         makeChecker('red', i, j, redCheckerId);
         redCheckerId++;
@@ -100,10 +96,10 @@ generateCheckers();
 
 const kingChecker = (color, id) => {
   let checkerToKing = document.getElementById(`${id}`);
-  if (checkerToKing.children.length > 0) {
+  if (checkerToKing && checkerToKing.children.length > 0) {
     return;
   }
-  // console.log('KING', color, id);
+
   const king = document.createElement('span');
   king.classList.add(`${color}-king`);
   document.getElementById(`${id}`).appendChild(king);
@@ -114,6 +110,122 @@ const clearSelected = () => {
   gameObj.playableCells.forEach(cell => (cell.onclick = null));
   gameObj.selected.classList.remove('selected');
   gameObj.moves = [];
+  gameObj.position = {};
+  gameObj.nearestCells = [];
+  gameObj.enemyColor = null;
+};
+
+let checkSpot = (x, y) => document.getElementById(`${x},${y}`);
+
+// gets the 4 cells around the piece
+const getNearestCells = currentPosition => {
+  return {
+    downRight: checkSpot(currentPosition.x + 1, currentPosition.y + 1),
+    downLeft: checkSpot(currentPosition.x + 1, currentPosition.y - 1),
+    upRight: checkSpot(currentPosition.x - 1, currentPosition.y + 1),
+    upLeft: checkSpot(currentPosition.x - 1, currentPosition.y - 1)
+  };
+};
+
+const showMove = (cell, call) => {
+  cell.classList.add('select-move');
+  cell.onclick = () => {
+    call();
+  };
+};
+
+const getNearestMove = color => {
+  let obj = gameObj.nearestCells[0];
+  let dir = {
+    x: color === 'red' ? 'downLeft' : 'upLeft',
+    y: color === 'red' ? 'downRight' : 'upRight'
+  };
+  let enemyColor = color === 'red' ? 'black' : 'red';
+  // find available cells adjacent to our selection
+  for (const cell in obj) {
+    let element = obj[cell];
+    if (element && element.children.length === 0) {
+      // adjacent space is available
+      if (gameObj.isKing === true) {
+        // if the piece is a king, it can move in any direction
+        showMove(element, () => makeMove(color, gameObj.selected, element, cell, 1));
+      } else if (gameObj.isKing !== true && (cell === dir.x || cell === dir.y)) {
+        // block moving backwards for non king pieces
+        showMove(element, () => makeMove(color, gameObj.selected, element, cell, 1));
+      }
+    }
+
+    if (
+      element &&
+      element.children.length > 0 &&
+      element.children[0].classList.contains(`${enemyColor}-checker`)
+    ) {
+      if (gameObj.isKing === true) {
+        checkForJumps(element, cell, color);
+      } else if (gameObj.isKing !== true && (cell === dir.x || cell === dir.y)) {
+        checkForJumps(element, cell, color);
+      }
+    }
+  }
+};
+
+const checkForJumps = (occupiedCell, direction, color) => {
+  console.log('checking jump:', occupiedCell, direction);
+  const moveDir = getMoveDir(direction, 2);
+  let checkCell = checkSpot(moveDir.x, moveDir.y);
+
+  if (!checkCell) {
+    console.log('cant move');
+  } else if (checkCell && checkCell.children.length === 0) {
+    // we can jump it
+    console.log(checkCell);
+    showMove(checkCell, () => {
+      makeMove(color, gameObj.selected, checkCell, direction, 2);
+      occupiedCell.children[0].remove();
+    });
+  }
+  // console.log(moveDir);
+};
+
+const getMoveDir = (cell, i) => {
+  let moveDir;
+  switch (cell) {
+    case 'downRight':
+      moveDir = { x: gameObj.position.x + i, y: gameObj.position.y + i };
+      break;
+    case 'downLeft':
+      moveDir = { x: gameObj.position.x + i, y: gameObj.position.y - i };
+      break;
+    case 'upRight':
+      moveDir = { x: gameObj.position.x - i, y: gameObj.position.y + i };
+      break;
+    case 'upLeft':
+      moveDir = { x: gameObj.position.x - i, y: gameObj.position.y - i };
+      break;
+    default:
+      moveDir = null;
+      break;
+  }
+  return moveDir;
+};
+
+const makeMove = (color, selected, moveTo, cell, i) => {
+  // move the actual piece to the new square
+  // moveTo.appendChild(selected);
+  const moveDir = getMoveDir(cell, i);
+
+  if (color === 'red' && moveDir.x === 7) {
+    kingChecker(color, selected.id);
+  }
+  if (color === 'black' && moveDir.x === 0) {
+    kingChecker(color, selected.id);
+  }
+  // move the actual piece to the new square
+  moveTo.appendChild(selected);
+  gameObj[`${color}Loc`][`${selected.id}`] = moveDir;
+
+  // clear the event handlers and shown moves
+  clearSelected();
 };
 
 const checkMove = (color, id) => {
@@ -129,565 +241,583 @@ const checkMove = (color, id) => {
   gameObj.selected = selected;
 
   // const cellPosId = cellPos.id.split(',');
-  const posObj = {
+  // const posObj = {
+  //   x: Number(boardPosition.id.split(',')[0]),
+  //   y: Number(boardPosition.id.split(',')[1])
+  // };
+
+  gameObj.position = {
     x: Number(boardPosition.id.split(',')[0]),
     y: Number(boardPosition.id.split(',')[1])
   };
 
-  let checkSpot = (x, y) => document.getElementById(`${x},${y}`);
+  let nearestCells = getNearestCells(gameObj.position);
+  gameObj.nearestCells.push(nearestCells);
 
-  const makeMove = (color, selected, moveTo, x, y) => {
-    // console.log('selected-ID', selected.id);
-    moveTo.appendChild(selected);
-    gameObj[`${color}Loc`][`${selected.id}`] = { x: x, y: y };
-    if (color === 'red' && x === 7) {
-      kingChecker(color, selected.id);
-    }
-
-    if (color === 'black' && x === 0) {
-      kingChecker(color, selected.id);
-    }
-    clearSelected();
-  };
-
-  // if (gameObj.moves)
   if (color === 'red') {
-    // pieces that can only move right because they're on the edge of the board
-    if (position.y === 0) {
-      let move = checkSpot(posObj.x + 1, posObj.y + 1);
-      let kingMove = checkSpot(position.x - 1, position.y + 1);
+    let isKing =
+      selected.children.length > 0 &&
+      selected.children[0].classList.contains('red-king')
+        ? true
+        : false;
 
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('red-king')
-      ) {
-        if (kingMove && kingMove.children.length === 0) {
-          // next move is an empty square (free to move to)
-          kingMove.classList.add('select-move');
-          kingMove.onclick = () => {
-            makeMove('red', selected, kingMove, position.x - 1, position.y + 1);
-          };
-          gameObj.moves.push(kingMove);
-        } else {
-          if (kingMove && kingMove.children.length > 0) {
-            let classes = kingMove.children[0];
-            if (classes && classes.classList.contains('black-checker')) {
-              // there is an enemy in an adjascent square
-              let kingMove_1 = checkSpot(position.x - 2, position.y + 2);
-              if (kingMove_1 && kingMove_1.children.length === 0) {
-                // we can jump the enemy in our way!
-                kingMove_1.classList.add('select-move');
-                kingMove_1.onclick = () => {
-                  makeMove(
-                    'red',
-                    selected,
-                    kingMove_1,
-                    position.x - 2,
-                    position.y + 2
-                  );
-                  kingMove.children[0].remove();
-                };
-                gameObj.moves.push(kingMove_1);
-              }
-            }
-          }
-        }
-      }
-
-      if (move && move.children.length === 0) {
-        move.classList.add('select-move');
-        move.onclick = () => {
-          makeMove('red', selected, move, position.x + 1, position.y + 1);
-        };
-        gameObj.moves.push(move);
-      } else {
-        let classes = move.children[0];
-
-        if (classes.classList.contains('black-checker')) {
-          let move1_1 = checkSpot(position.x + 2, position.y + 2);
-
-          if (move1_1 && move1_1.children.length === 0) {
-            move1_1.classList.add('select-move');
-            move1_1.onclick = () => {
-              makeMove('red', selected, move1_1, position.x + 2, position.y + 2);
-              move.children[0].remove();
-            };
-            gameObj.moves.push(move1_1);
-          }
-        }
-      }
-    }
-
-    // pieces that can have 2 moves, up right, or up left
-    if (position.y > 0 && position.y < 7) {
-      // let move1 =
-      //   position.x + 1 <= 7 ? checkSpot(position.x + 1, position.y + 1) : null;
-      let move1 = checkSpot(position.x + 1, position.y + 1);
-      let move2 = checkSpot(position.x + 1, position.y - 1);
-      let kingMove1 = checkSpot(position.x - 1, position.y + 1);
-      let kingMove2 = checkSpot(position.x - 1, position.y - 1);
-
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('red-king')
-      ) {
-        if (kingMove1 && kingMove1.children.length === 0) {
-          kingMove1.classList.add('select-move');
-          kingMove1.onclick = () => {
-            makeMove('red', selected, kingMove1, position.x - 1, position.y + 1);
-          };
-          gameObj.moves.push(kingMove1);
-        } else {
-          // square is occupied
-          if (kingMove1 && kingMove1.children.length > 0) {
-            let classes = kingMove1.children[0];
-            if (classes !== null && classes.classList.contains('black-checker')) {
-              let kingMove1_1 = checkSpot(position.x - 2, position.y + 2);
-
-              if (kingMove1_1 && kingMove1_1.children.length === 0) {
-                kingMove1_1.classList.add('select-move');
-                kingMove1_1.onclick = () => {
-                  makeMove(
-                    'red',
-                    selected,
-                    kingMove1_1,
-                    position.x - 2,
-                    position.y + 2
-                  );
-                  kingMove1.children[0].remove();
-                };
-                gameObj.moves.push(kingMove1_1);
-              }
-            }
-          }
-        }
-
-        if (kingMove2 && kingMove2.children.length === 0) {
-          // next move is an empty square
-          kingMove2.classList.add('select-move');
-          kingMove2.onclick = () => {
-            makeMove('red', selected, kingMove2, position.x - 1, position.y - 1);
-          };
-          gameObj.moves.push(kingMove2);
-        } else {
-          // square is occupied or doesnt exist
-          if (kingMove2 && kingMove2.children.length > 0) {
-            let classes = kingMove2.children[0];
-            if (classes && classes.classList.contains('black-checker')) {
-              // the square is occupied by an enemy
-              let kingMove2_1 = checkSpot(position.x - 2, position.y - 2);
-
-              if (kingMove2_1 && kingMove2_1.children.length === 0) {
-                // we can jump the enemy next to us
-                kingMove2_1.classList.add('select-move');
-                kingMove2_1.onclick = () => {
-                  makeMove(
-                    'red',
-                    selected,
-                    kingMove2_1,
-                    position.x - 2,
-                    position.y - 2
-                  );
-                  kingMove2.children[0].remove();
-                };
-                gameObj.moves.push(kingMove2_1);
-              }
-            }
-          }
-        }
-      }
-
-      // making sure the move isn't already occupied by a piece
-      if (move1 && move1.children.length === 0) {
-        move1.classList.add('select-move');
-        move1.onclick = () => {
-          makeMove('red', selected, move1, position.x + 1, position.y + 1);
-        };
-        gameObj.moves.push(move1);
-      } else {
-        if (move1 && move1.children.length > 0) {
-          // spot is taken
-          let classes = move1.children[0];
-          // if spot is taken by enemy
-          if (classes.classList.contains('black-checker')) {
-            let move1_1 = checkSpot(position.x + 2, position.y + 2);
-            // can we jump them?
-            if (move1_1 && move1_1.children.length === 0) {
-              move1_1.classList.add('select-move');
-              move1_1.onclick = () => {
-                makeMove('red', selected, move1_1, position.x + 2, position.y + 2);
-                move1.children[0].remove();
-              };
-              gameObj.moves.push(move1_1);
-            }
-          }
-        }
-      }
-
-      if (move2 && move2.children.length === 0) {
-        move2.classList.add('select-move');
-        move2.onclick = () => {
-          makeMove('red', selected, move2, position.x + 1, position.y - 1);
-        };
-        gameObj.moves.push(move2);
-      } else {
-        if (move2 && move2.children.length > 0) {
-          let classes = move2.children[0];
-          if (classes.classList.contains('black-checker')) {
-            let move2_1 = checkSpot(position.x + 2, position.y - 2);
-            if (move2_1 && move2_1.children.length === 0) {
-              // we can jump them!
-              move2_1.classList.add('select-move');
-              move2_1.onclick = () => {
-                makeMove('red', selected, move2_1, position.x + 2, position.y - 2);
-                move2.children[0].remove();
-              };
-              gameObj.moves.push(move2_1);
-            }
-          }
-        }
-      }
-    }
-
-    // pieces that can only move left because they're on the edge of the board
-    if (position.y === 7) {
-      let move = checkSpot(posObj.x + 1, posObj.y - 1);
-      let kingMove = checkSpot(position.x - 1, position.y - 1);
-
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('red-king')
-      ) {
-        if (kingMove && kingMove.children.length === 0) {
-          // next move is an empty square (free to move to)
-          kingMove.classList.add('select-move');
-          kingMove.onclick = () => {
-            makeMove('red', selected, kingMove, position.x - 1, position.y - 1);
-          };
-          gameObj.moves.push(kingMove);
-        } else {
-          if (kingMove && kingMove.children.length > 0) {
-            let classes = kingMove.children[0];
-            if (classes && classes.classList.contains('black-checker')) {
-              // there is an enemy in an adjascent square
-              let kingMove_1 = checkSpot(position.x - 2, position.y - 2);
-              if (kingMove_1 && kingMove_1.children.length === 0) {
-                // we can jump the enemy in our way!
-                kingMove_1.classList.add('select-move');
-                kingMove_1.onclick = () => {
-                  makeMove(
-                    'red',
-                    selected,
-                    kingMove_1,
-                    position.x - 2,
-                    position.y - 2
-                  );
-                };
-                gameObj.moves.push(kingMove_1);
-              }
-            }
-          }
-        }
-      }
-
-      if (move && move.children.length === 0) {
-        move.classList.add('select-move');
-        move.onclick = () => {
-          makeMove('red', selected, move, position.x + 1, position.y - 1);
-        };
-        gameObj.moves.push(move);
-      } else {
-        if (move && move.children.length > 0) {
-          let classes = move.children[0];
-          if (classes.classList.contains('black-checker')) {
-            let move1_1 = checkSpot(position.x + 2, position.y - 2);
-
-            if (move1_1 && move1_1.children.length === 0) {
-              move1_1.classList.add('select-move');
-              move1_1.onclick = () => {
-                makeMove('red', selected, move1_1, position.x + 2, position.y - 2);
-                move.children[0].remove();
-              };
-              gameObj.moves.push(move1_1);
-            }
-          }
-        }
-      }
-    }
+    gameObj.isKing = isKing;
+    gameObj.enemyColor = 'black';
+    getNearestMove('red');
   }
-
-  //
-  //
-  //
-  //
-  //
 
   if (color === 'black') {
-    // pieces that can only move right because they're on the edge of the board
-    if (position.y === 0) {
-      let move = checkSpot(posObj.x - 1, posObj.y + 1);
-      let kingMove = checkSpot(position.x + 1, position.y + 1);
+    let isKing =
+      selected.children.length > 0 &&
+      selected.children[0].classList.contains('black-king')
+        ? true
+        : false;
 
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('black-king')
-      ) {
-        if (kingMove && kingMove.children.length === 0) {
-          // next move is an empty square (free to move to)
-          kingMove.classList.add('select-move');
-          kingMove.onclick = () => {
-            makeMove('black', selected, kingMove, position.x + 1, position.y + 1);
-          };
-          gameObj.moves.push(kingMove);
-        } else {
-          if (kingMove && kingMove.children.length > 0) {
-            let classes = kingMove.children[0];
-            if (classes && classes.classList.contains('red-checker')) {
-              // there is an enemy in an adjascent square
-              let kingMove_1 = checkSpot(position.x + 2, position.y + 2);
-              if (kingMove_1 && kingMove_1.children.length === 0) {
-                // we can jump the enemy in our way!
-                kingMove_1.classList.add('select-move');
-                kingMove_1.onclick = () => {
-                  makeMove(
-                    'black',
-                    selected,
-                    kingMove_1,
-                    position.x + 2,
-                    position.y + 2
-                  );
-                  kingMove.children[0].remove();
-                };
-                gameObj.moves.push(kingMove_1);
-              }
-            }
-          }
-        }
-      }
-
-      if (move && move.children.length === 0) {
-        move.classList.add('select-move');
-        move.onclick = () => {
-          makeMove('black', selected, move, position.x - 1, position.y + 1);
-        };
-        gameObj.moves.push(move);
-      } else {
-        if (move && move.children.length > 0) {
-          let classes = move.children[0];
-
-          if (classes.classList.contains('red-checker')) {
-            let move1_1 = checkSpot(position.x - 2, position.y + 2);
-
-            if (move1_1 && move1_1.children.length === 0) {
-              move1_1.classList.add('select-move');
-              move1_1.onclick = () => {
-                makeMove('black', selected, move1_1, position.x - 2, position.y + 2);
-                move.children[0].remove();
-              };
-              gameObj.moves.push(move1_1);
-            }
-          }
-        }
-      }
-    }
-
-    // pieces that can have 2 moves, up right, or up left
-    if (position.y > 0 && position.y < 7) {
-      let move1 = checkSpot(position.x - 1, position.y + 1);
-      let move2 = checkSpot(position.x - 1, position.y - 1);
-      let kingMove1 = checkSpot(position.x + 1, position.y + 1);
-      let kingMove2 = checkSpot(position.x + 1, position.y - 1);
-
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('black-king')
-      ) {
-        if (kingMove1 && kingMove1.children.length === 0) {
-          kingMove1.classList.add('select-move');
-          kingMove1.onclick = () => {
-            makeMove('black', selected, kingMove1, position.x + 1, position.y + 1);
-          };
-          gameObj.moves.push(kingMove1);
-        } else {
-          // square is occupied
-          if (kingMove1 && kingMove1.children.length > 0) {
-            let classes = kingMove1.children[0];
-            if (classes !== null && classes.classList.contains('red-checker')) {
-              let kingMove1_1 = checkSpot(position.x + 2, position.y + 2);
-
-              if (kingMove1_1 && kingMove1_1.children.length === 0) {
-                kingMove1_1.classList.add('select-move');
-                kingMove1_1.onclick = () => {
-                  makeMove(
-                    'black',
-                    selected,
-                    kingMove1_1,
-                    position.x + 2,
-                    position.y + 2
-                  );
-                  kingMove1.children[0].remove();
-                };
-                gameObj.moves.push(kingMove1_1);
-              }
-            }
-          }
-        }
-
-        // down-left
-        if (kingMove2 && kingMove2.children.length === 0) {
-          // next move is an empty square
-          kingMove2.classList.add('select-move');
-          kingMove2.onclick = () => {
-            makeMove('black', selected, kingMove2, position.x + 1, position.y - 1);
-          };
-          gameObj.moves.push(kingMove2);
-        } else {
-          // square is occupied or doesnt exist
-          if (kingMove2 && kingMove2.children.length > 0) {
-            let classes = kingMove2.children[0];
-            if (classes && classes.classList.contains('red-checker')) {
-              // the square is occupied by an enemy
-              let kingMove2_1 = checkSpot(position.x + 2, position.y - 2);
-
-              if (kingMove2_1 && kingMove2_1.children.length === 0) {
-                // we can jump the enemy next to us
-                kingMove2_1.classList.add('select-move');
-                kingMove2_1.onclick = () => {
-                  makeMove(
-                    'black',
-                    selected,
-                    kingMove2_1,
-                    position.x + 2,
-                    position.y - 2
-                  );
-                  kingMove2.children[0].remove();
-                };
-                gameObj.moves.push(kingMove2_1);
-              }
-            }
-          }
-        }
-      }
-
-      // making sure the move isn't already occupied by a piece
-      if (move1 && move1.children.length === 0) {
-        move1.classList.add('select-move');
-        move1.onclick = () => {
-          makeMove('black', selected, move1, position.x - 1, position.y + 1);
-        };
-        gameObj.moves.push(move1);
-      } else {
-        if (move1 && move1.children.length > 0) {
-          let classes = move1.children[0];
-          if (classes.classList.contains('red-checker')) {
-            let move1_1 = checkSpot(position.x - 2, position.y + 2);
-            // can we jump them?
-            if (move1_1 && move1_1.children.length === 0) {
-              move1_1.classList.add('select-move');
-              move1_1.onclick = () => {
-                makeMove('black', selected, move1_1, position.x - 2, position.y + 2);
-                move1.children[0].remove();
-              };
-              gameObj.moves.push(move1_1);
-            }
-          }
-        }
-      }
-
-      if (move2 && move2.children.length === 0) {
-        move2.classList.add('select-move');
-        move2.onclick = () => {
-          makeMove('black', selected, move2, position.x - 1, position.y - 1);
-        };
-        gameObj.moves.push(move2);
-      } else {
-        if (move2 && move2.children.length > 0) {
-          let classes = move2.children[0];
-          if (classes.classList.contains('red-checker')) {
-            let move2_1 = checkSpot(position.x - 2, position.y - 2);
-            if (move2_1 && move2_1.children.length === 0) {
-              // we can jump them!
-              move2_1.classList.add('select-move');
-              move2_1.onclick = () => {
-                makeMove('black', selected, move2_1, position.x - 2, position.y - 2);
-                move2.children[0].remove();
-              };
-              gameObj.moves.push(move2_1);
-            }
-          }
-        }
-      }
-    }
-
-    // pieces that can only move left because they're on the edge of the board
-    if (position.y === 7) {
-      let move = checkSpot(posObj.x - 1, posObj.y - 1);
-      let kingMove = checkSpot(position.x + 1, position.y - 1);
-
-      // is the selected piece a king?
-      if (
-        selected.children.length > 0 &&
-        selected.children[0].classList.contains('black-king')
-      ) {
-        if (kingMove && kingMove.children.length === 0) {
-          // next move is an empty square (free to move to)
-          kingMove.classList.add('select-move');
-          kingMove.onclick = () => {
-            makeMove('black', selected, kingMove, position.x + 1, position.y - 1);
-          };
-          gameObj.moves.push(kingMove);
-        } else {
-          if (kingMove && kingMove.children.length > 0) {
-            let classes = kingMove.children[0];
-            if (classes && classes.classList.contains('red-checker')) {
-              // there is an enemy in an adjascent square
-              let kingMove_1 = checkSpot(position.x + 2, position.y - 2);
-              if (kingMove_1 && kingMove_1.children.length === 0) {
-                // we can jump the enemy in our way!
-                kingMove_1.classList.add('select-move');
-                kingMove_1.onclick = () => {
-                  makeMove(
-                    'black',
-                    selected,
-                    kingMove_1,
-                    position.x + 2,
-                    position.y - 2
-                  );
-                };
-                gameObj.moves.push(kingMove_1);
-              }
-            }
-          }
-        }
-      }
-
-      if (move.children.length === 0) {
-        move.classList.add('select-move');
-        move.onclick = () => {
-          makeMove('black', selected, move, position.x - 1, position.y - 1);
-        };
-        gameObj.moves.push(move);
-      } else {
-        let classes = move.children[0];
-
-        if (classes.classList.contains('red-checker')) {
-          let move1_1 = checkSpot(position.x - 2, position.y - 2);
-
-          if (move1_1 && move1_1.children.length === 0) {
-            move1_1.classList.add('select-move');
-            move1_1.onclick = () => {
-              makeMove('black', selected, move1_1, position.x - 2, position.y - 2);
-              move.children[0].remove();
-            };
-            gameObj.moves.push(move1_1);
-          }
-        }
-      }
-    }
+    gameObj.isKing = isKing;
+    gameObj.enemyColor = 'red';
+    getNearestMove('black');
   }
+
+  // if (gameObj.moves)
+  // if (color === 'red') {
+  //   getNearestCells();
+  //   getNearestMove();
+  //   // pieces that can only move right because they're on the edge of the board
+  //   if (position.y === 0) {
+  //     let move = checkSpot(posObj.x + 1, posObj.y + 1);
+  //     let kingMove = checkSpot(position.x - 1, position.y + 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('red-king')
+  //     ) {
+  //       if (kingMove && kingMove.children.length === 0) {
+  //         // next move is an empty square (free to move to)
+  //         kingMove.classList.add('select-move');
+  //         kingMove.onclick = () => {
+  //           makeMove('red', selected, kingMove, position.x - 1, position.y + 1);
+  //         };
+  //         gameObj.moves.push(kingMove);
+  //       } else {
+  //         if (kingMove && kingMove.children.length > 0) {
+  //           let classes = kingMove.children[0];
+  //           if (classes && classes.classList.contains('black-checker')) {
+  //             // there is an enemy in an adjascent square
+  //             let kingMove_1 = checkSpot(position.x - 2, position.y + 2);
+  //             if (kingMove_1 && kingMove_1.children.length === 0) {
+  //               // we can jump the enemy in our way!
+  //               kingMove_1.classList.add('select-move');
+  //               kingMove_1.onclick = () => {
+  //                 makeMove(
+  //                   'red',
+  //                   selected,
+  //                   kingMove_1,
+  //                   position.x - 2,
+  //                   position.y + 2
+  //                 );
+  //                 kingMove.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move && move.children.length === 0) {
+  //       move.classList.add('select-move');
+  //       move.onclick = () => {
+  //         makeMove('red', selected, move, position.x + 1, position.y + 1);
+  //       };
+  //       gameObj.moves.push(move);
+  //     } else {
+  //       let classes = move.children[0];
+
+  //       if (classes.classList.contains('black-checker')) {
+  //         let move1_1 = checkSpot(position.x + 2, position.y + 2);
+
+  //         if (move1_1 && move1_1.children.length === 0) {
+  //           move1_1.classList.add('select-move');
+  //           move1_1.onclick = () => {
+  //             makeMove('red', selected, move1_1, position.x + 2, position.y + 2);
+  //             move.children[0].remove();
+  //           };
+  //           gameObj.moves.push(move1_1);
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   // pieces that can have 2 moves, up right, or up left
+  //   if (position.y > 0 && position.y < 7) {
+  //     // let move1 =
+  //     //   position.x + 1 <= 7 ? checkSpot(position.x + 1, position.y + 1) : null;
+  //     let move1 = checkSpot(position.x + 1, position.y + 1);
+  //     let move2 = checkSpot(position.x + 1, position.y - 1);
+  //     let kingMove1 = checkSpot(position.x - 1, position.y + 1);
+  //     let kingMove2 = checkSpot(position.x - 1, position.y - 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('red-king')
+  //     ) {
+  //       if (kingMove1 && kingMove1.children.length === 0) {
+  //         kingMove1.classList.add('select-move');
+  //         kingMove1.onclick = () => {
+  //           makeMove('red', selected, kingMove1, position.x - 1, position.y + 1);
+  //         };
+  //         gameObj.moves.push(kingMove1);
+  //       } else {
+  //         // square is occupied
+  //         if (kingMove1 && kingMove1.children.length > 0) {
+  //           let classes = kingMove1.children[0];
+  //           if (classes !== null && classes.classList.contains('black-checker')) {
+  //             let kingMove1_1 = checkSpot(position.x - 2, position.y + 2);
+
+  //             if (kingMove1_1 && kingMove1_1.children.length === 0) {
+  //               kingMove1_1.classList.add('select-move');
+  //               kingMove1_1.onclick = () => {
+  //                 makeMove(
+  //                   'red',
+  //                   selected,
+  //                   kingMove1_1,
+  //                   position.x - 2,
+  //                   position.y + 2
+  //                 );
+  //                 kingMove1.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove1_1);
+  //             }
+  //           }
+  //         }
+  //       }
+
+  //       if (kingMove2 && kingMove2.children.length === 0) {
+  //         // next move is an empty square
+  //         kingMove2.classList.add('select-move');
+  //         kingMove2.onclick = () => {
+  //           makeMove('red', selected, kingMove2, position.x - 1, position.y - 1);
+  //         };
+  //         gameObj.moves.push(kingMove2);
+  //       } else {
+  //         // square is occupied or doesnt exist
+  //         if (kingMove2 && kingMove2.children.length > 0) {
+  //           let classes = kingMove2.children[0];
+  //           if (classes && classes.classList.contains('black-checker')) {
+  //             // the square is occupied by an enemy
+  //             let kingMove2_1 = checkSpot(position.x - 2, position.y - 2);
+
+  //             if (kingMove2_1 && kingMove2_1.children.length === 0) {
+  //               // we can jump the enemy next to us
+  //               kingMove2_1.classList.add('select-move');
+  //               kingMove2_1.onclick = () => {
+  //                 makeMove(
+  //                   'red',
+  //                   selected,
+  //                   kingMove2_1,
+  //                   position.x - 2,
+  //                   position.y - 2
+  //                 );
+  //                 kingMove2.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove2_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     // making sure the move isn't already occupied by a piece
+  //     if (move1 && move1.children.length === 0) {
+  //       move1.classList.add('select-move');
+  //       move1.onclick = () => {
+  //         makeMove('red', selected, move1, position.x + 1, position.y + 1);
+  //       };
+  //       gameObj.moves.push(move1);
+  //     } else {
+  //       if (move1 && move1.children.length > 0) {
+  //         // spot is taken
+  //         let classes = move1.children[0];
+  //         // if spot is taken by enemy
+  //         if (classes.classList.contains('black-checker')) {
+  //           let move1_1 = checkSpot(position.x + 2, position.y + 2);
+  //           // can we jump them?
+  //           if (move1_1 && move1_1.children.length === 0) {
+  //             move1_1.classList.add('select-move');
+  //             move1_1.onclick = () => {
+  //               makeMove('red', selected, move1_1, position.x + 2, position.y + 2);
+  //               move1.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move1_1);
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move2 && move2.children.length === 0) {
+  //       move2.classList.add('select-move');
+  //       move2.onclick = () => {
+  //         makeMove('red', selected, move2, position.x + 1, position.y - 1);
+  //       };
+  //       gameObj.moves.push(move2);
+  //     } else {
+  //       if (move2 && move2.children.length > 0) {
+  //         let classes = move2.children[0];
+  //         if (classes.classList.contains('black-checker')) {
+  //           let move2_1 = checkSpot(position.x + 2, position.y - 2);
+  //           if (move2_1 && move2_1.children.length === 0) {
+  //             // we can jump them!
+  //             move2_1.classList.add('select-move');
+  //             move2_1.onclick = () => {
+  //               makeMove('red', selected, move2_1, position.x + 2, position.y - 2);
+  //               move2.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move2_1);
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   // pieces that can only move left because they're on the edge of the board
+  //   if (position.y === 7) {
+  //     let move = checkSpot(posObj.x + 1, posObj.y - 1);
+  //     let kingMove = checkSpot(position.x - 1, position.y - 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('red-king')
+  //     ) {
+  //       if (kingMove && kingMove.children.length === 0) {
+  //         // next move is an empty square (free to move to)
+  //         kingMove.classList.add('select-move');
+  //         kingMove.onclick = () => {
+  //           makeMove('red', selected, kingMove, position.x - 1, position.y - 1);
+  //         };
+  //         gameObj.moves.push(kingMove);
+  //       } else {
+  //         if (kingMove && kingMove.children.length > 0) {
+  //           let classes = kingMove.children[0];
+  //           if (classes && classes.classList.contains('black-checker')) {
+  //             // there is an enemy in an adjascent square
+  //             let kingMove_1 = checkSpot(position.x - 2, position.y - 2);
+  //             if (kingMove_1 && kingMove_1.children.length === 0) {
+  //               // we can jump the enemy in our way!
+  //               kingMove_1.classList.add('select-move');
+  //               kingMove_1.onclick = () => {
+  //                 makeMove(
+  //                   'red',
+  //                   selected,
+  //                   kingMove_1,
+  //                   position.x - 2,
+  //                   position.y - 2
+  //                 );
+  //               };
+  //               gameObj.moves.push(kingMove_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move && move.children.length === 0) {
+  //       move.classList.add('select-move');
+  //       move.onclick = () => {
+  //         makeMove('red', selected, move, position.x + 1, position.y - 1);
+  //       };
+  //       gameObj.moves.push(move);
+  //     } else {
+  //       if (move && move.children.length > 0) {
+  //         let classes = move.children[0];
+  //         if (classes.classList.contains('black-checker')) {
+  //           let move1_1 = checkSpot(position.x + 2, position.y - 2);
+
+  //           if (move1_1 && move1_1.children.length === 0) {
+  //             move1_1.classList.add('select-move');
+  //             move1_1.onclick = () => {
+  //               makeMove('red', selected, move1_1, position.x + 2, position.y - 2);
+  //               move.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move1_1);
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
+
+  //
+  //
+  //
+  //
+  //
+
+  // if (color === 'black') {
+  //   // pieces that can only move right because they're on the edge of the board
+  //   if (position.y === 0) {
+  //     let move = checkSpot(posObj.x - 1, posObj.y + 1);
+  //     let kingMove = checkSpot(position.x + 1, position.y + 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('black-king')
+  //     ) {
+  //       if (kingMove && kingMove.children.length === 0) {
+  //         // next move is an empty square (free to move to)
+  //         kingMove.classList.add('select-move');
+  //         kingMove.onclick = () => {
+  //           makeMove('black', selected, kingMove, position.x + 1, position.y + 1);
+  //         };
+  //         gameObj.moves.push(kingMove);
+  //       } else {
+  //         if (kingMove && kingMove.children.length > 0) {
+  //           let classes = kingMove.children[0];
+  //           if (classes && classes.classList.contains('red-checker')) {
+  //             // there is an enemy in an adjascent square
+  //             let kingMove_1 = checkSpot(position.x + 2, position.y + 2);
+  //             if (kingMove_1 && kingMove_1.children.length === 0) {
+  //               // we can jump the enemy in our way!
+  //               kingMove_1.classList.add('select-move');
+  //               kingMove_1.onclick = () => {
+  //                 makeMove(
+  //                   'black',
+  //                   selected,
+  //                   kingMove_1,
+  //                   position.x + 2,
+  //                   position.y + 2
+  //                 );
+  //                 kingMove.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move && move.children.length === 0) {
+  //       move.classList.add('select-move');
+  //       move.onclick = () => {
+  //         makeMove('black', selected, move, position.x - 1, position.y + 1);
+  //       };
+  //       gameObj.moves.push(move);
+  //     } else {
+  //       if (move && move.children.length > 0) {
+  //         let classes = move.children[0];
+
+  //         if (classes.classList.contains('red-checker')) {
+  //           let move1_1 = checkSpot(position.x - 2, position.y + 2);
+
+  //           if (move1_1 && move1_1.children.length === 0) {
+  //             move1_1.classList.add('select-move');
+  //             move1_1.onclick = () => {
+  //               makeMove('black', selected, move1_1, position.x - 2, position.y + 2);
+  //               move.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move1_1);
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   // pieces that can have 2 moves, up right, or up left
+  //   if (position.y > 0 && position.y < 7) {
+  //     let move1 = checkSpot(position.x - 1, position.y + 1);
+  //     let move2 = checkSpot(position.x - 1, position.y - 1);
+  //     let kingMove1 = checkSpot(position.x + 1, position.y + 1);
+  //     let kingMove2 = checkSpot(position.x + 1, position.y - 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('black-king')
+  //     ) {
+  //       if (kingMove1 && kingMove1.children.length === 0) {
+  //         kingMove1.classList.add('select-move');
+  //         kingMove1.onclick = () => {
+  //           makeMove('black', selected, kingMove1, position.x + 1, position.y + 1);
+  //         };
+  //         gameObj.moves.push(kingMove1);
+  //       } else {
+  //         // square is occupied
+  //         if (kingMove1 && kingMove1.children.length > 0) {
+  //           let classes = kingMove1.children[0];
+  //           if (classes !== null && classes.classList.contains('red-checker')) {
+  //             let kingMove1_1 = checkSpot(position.x + 2, position.y + 2);
+
+  //             if (kingMove1_1 && kingMove1_1.children.length === 0) {
+  //               kingMove1_1.classList.add('select-move');
+  //               kingMove1_1.onclick = () => {
+  //                 makeMove(
+  //                   'black',
+  //                   selected,
+  //                   kingMove1_1,
+  //                   position.x + 2,
+  //                   position.y + 2
+  //                 );
+  //                 kingMove1.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove1_1);
+  //             }
+  //           }
+  //         }
+  //       }
+
+  //       // down-left
+  //       if (kingMove2 && kingMove2.children.length === 0) {
+  //         // next move is an empty square
+  //         kingMove2.classList.add('select-move');
+  //         kingMove2.onclick = () => {
+  //           makeMove('black', selected, kingMove2, position.x + 1, position.y - 1);
+  //         };
+  //         gameObj.moves.push(kingMove2);
+  //       } else {
+  //         // square is occupied or doesnt exist
+  //         if (kingMove2 && kingMove2.children.length > 0) {
+  //           let classes = kingMove2.children[0];
+  //           if (classes && classes.classList.contains('red-checker')) {
+  //             // the square is occupied by an enemy
+  //             let kingMove2_1 = checkSpot(position.x + 2, position.y - 2);
+
+  //             if (kingMove2_1 && kingMove2_1.children.length === 0) {
+  //               // we can jump the enemy next to us
+  //               kingMove2_1.classList.add('select-move');
+  //               kingMove2_1.onclick = () => {
+  //                 makeMove(
+  //                   'black',
+  //                   selected,
+  //                   kingMove2_1,
+  //                   position.x + 2,
+  //                   position.y - 2
+  //                 );
+  //                 kingMove2.children[0].remove();
+  //               };
+  //               gameObj.moves.push(kingMove2_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     // making sure the move isn't already occupied by a piece
+  //     if (move1 && move1.children.length === 0) {
+  //       move1.classList.add('select-move');
+  //       move1.onclick = () => {
+  //         makeMove('black', selected, move1, position.x - 1, position.y + 1);
+  //       };
+  //       gameObj.moves.push(move1);
+  //     } else {
+  //       if (move1 && move1.children.length > 0) {
+  //         let classes = move1.children[0];
+  //         if (classes.classList.contains('red-checker')) {
+  //           let move1_1 = checkSpot(position.x - 2, position.y + 2);
+  //           // can we jump them?
+  //           if (move1_1 && move1_1.children.length === 0) {
+  //             move1_1.classList.add('select-move');
+  //             move1_1.onclick = () => {
+  //               makeMove('black', selected, move1_1, position.x - 2, position.y + 2);
+  //               move1.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move1_1);
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move2 && move2.children.length === 0) {
+  //       move2.classList.add('select-move');
+  //       move2.onclick = () => {
+  //         makeMove('black', selected, move2, position.x - 1, position.y - 1);
+  //       };
+  //       gameObj.moves.push(move2);
+  //     } else {
+  //       if (move2 && move2.children.length > 0) {
+  //         let classes = move2.children[0];
+  //         if (classes.classList.contains('red-checker')) {
+  //           let move2_1 = checkSpot(position.x - 2, position.y - 2);
+  //           if (move2_1 && move2_1.children.length === 0) {
+  //             // we can jump them!
+  //             move2_1.classList.add('select-move');
+  //             move2_1.onclick = () => {
+  //               makeMove('black', selected, move2_1, position.x - 2, position.y - 2);
+  //               move2.children[0].remove();
+  //             };
+  //             gameObj.moves.push(move2_1);
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   // pieces that can only move left because they're on the edge of the board
+  //   if (position.y === 7) {
+  //     let move = checkSpot(posObj.x - 1, posObj.y - 1);
+  //     let kingMove = checkSpot(position.x + 1, position.y - 1);
+
+  //     // is the selected piece a king?
+  //     if (
+  //       selected.children.length > 0 &&
+  //       selected.children[0].classList.contains('black-king')
+  //     ) {
+  //       if (kingMove && kingMove.children.length === 0) {
+  //         // next move is an empty square (free to move to)
+  //         kingMove.classList.add('select-move');
+  //         kingMove.onclick = () => {
+  //           makeMove('black', selected, kingMove, position.x + 1, position.y - 1);
+  //         };
+  //         gameObj.moves.push(kingMove);
+  //       } else {
+  //         if (kingMove && kingMove.children.length > 0) {
+  //           let classes = kingMove.children[0];
+  //           if (classes && classes.classList.contains('red-checker')) {
+  //             // there is an enemy in an adjascent square
+  //             let kingMove_1 = checkSpot(position.x + 2, position.y - 2);
+  //             if (kingMove_1 && kingMove_1.children.length === 0) {
+  //               // we can jump the enemy in our way!
+  //               kingMove_1.classList.add('select-move');
+  //               kingMove_1.onclick = () => {
+  //                 makeMove(
+  //                   'black',
+  //                   selected,
+  //                   kingMove_1,
+  //                   position.x + 2,
+  //                   position.y - 2
+  //                 );
+  //               };
+  //               gameObj.moves.push(kingMove_1);
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     if (move.children.length === 0) {
+  //       move.classList.add('select-move');
+  //       move.onclick = () => {
+  //         makeMove('black', selected, move, position.x - 1, position.y - 1);
+  //       };
+  //       gameObj.moves.push(move);
+  //     } else {
+  //       let classes = move.children[0];
+
+  //       if (classes.classList.contains('red-checker')) {
+  //         let move1_1 = checkSpot(position.x - 2, position.y - 2);
+
+  //         if (move1_1 && move1_1.children.length === 0) {
+  //           move1_1.classList.add('select-move');
+  //           move1_1.onclick = () => {
+  //             makeMove('black', selected, move1_1, position.x - 2, position.y - 2);
+  //             move.children[0].remove();
+  //           };
+  //           gameObj.moves.push(move1_1);
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
 };
